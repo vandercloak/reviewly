@@ -33,18 +33,23 @@ class GitHubService {
     // Check cache first
     const cached = repoCacheService.getCachedUserRepos(cacheKey);
     if (cached && cached.data.length > 0) {
-      // Return cached data immediately
-      const cachedRepos = cached.data;
+      const cacheAge = Date.now() - (cached.timestamp || 0);
+      const fifteenMinutes = 15 * 60 * 1000;
+      const fiveMinutes = 5 * 60 * 1000;
       
-      // Fetch fresh data in background
-      this.fetchAndUpdateReposInBackground(cacheKey, page, perPage).catch(error => {
-        console.warn('Background repo update failed:', error);
-      });
-      
-      return cachedRepos;
+      // Return cached data if it's less than 15 minutes old
+      if (cacheAge < fifteenMinutes) {
+        // Only fetch fresh data in background if cache is older than 5 minutes
+        if (cacheAge > fiveMinutes) {
+          this.fetchAndUpdateReposInBackground(cacheKey, page, perPage).catch(error => {
+            console.warn('Background repo update failed:', error);
+          });
+        }
+        return cached.data;
+      }
     }
     
-    // No cache, fetch fresh data
+    // No cache or cache too old, fetch fresh data
     const response = await this.octokit!.rest.repos.listForAuthenticatedUser({
       sort: 'updated',
       direction: 'desc',
@@ -141,21 +146,26 @@ class GitHubService {
     const cacheKey = 'all_prs_awaiting_review';
     const cached = repoCacheService.getCachedPullRequests('_all_', cacheKey);
     
-    // If we have cached data, return it immediately
-    // Then fetch fresh data in the background
+    // If we have cached data less than 10 minutes old, return it immediately
+    // Then fetch fresh data in the background only if cache is older than 2 minutes
     if (cached && cached.data.length > 0) {
-      // Return cached data immediately
-      const cachedPRs = cached.data;
+      const cacheAge = Date.now() - (cached.timestamp || 0);
+      const tenMinutes = 10 * 60 * 1000;
+      const twoMinutes = 2 * 60 * 1000;
       
-      // Fetch fresh data in background
-      this.fetchAndUpdatePRsInBackground(cacheKey).catch(error => {
-        console.warn('Background PR update failed:', error);
-      });
-      
-      return cachedPRs;
+      // Always return cached data if it's less than 10 minutes old
+      if (cacheAge < tenMinutes) {
+        // Only fetch fresh data in background if cache is older than 2 minutes
+        if (cacheAge > twoMinutes) {
+          this.fetchAndUpdatePRsInBackground(cacheKey).catch(error => {
+            console.warn('Background PR update failed:', error);
+          });
+        }
+        return cached.data;
+      }
     }
     
-    // No cache, fetch fresh data
+    // No cache or cache too old, fetch fresh data
     return this.fetchFreshPRsAwaitingReview(cacheKey);
   }
 
@@ -163,34 +173,61 @@ class GitHubService {
     try {
       console.log('Fetching PRs awaiting review...');
       
-      // Get all PRs where the current user is requested as a reviewer
-      const { data: reviewRequests } = await this.octokit!.rest.search.issuesAndPullRequests({
-        q: `type:pr state:open review-requested:@me`,
-        sort: 'updated',
-        order: 'desc',
-        per_page: 100,
-      });
-      
-      console.log(`Found ${reviewRequests.items.length} PRs with review requests`);
-
-      // Get current user
+      // Get current user first to handle any auth issues early
       const user = await this.getCurrentUser();
+      console.log(`Authenticated as: ${user.login}`);
+      
+      let reviewRequests: any = { items: [] };
+      
+      // Try to get PRs where the current user is requested as a reviewer
+      try {
+        // Add a small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        const response = await this.octokit!.rest.search.issuesAndPullRequests({
+          q: `type:pr state:open review-requested:@me`,
+          sort: 'updated',
+          order: 'desc',
+          per_page: 30, // Reduced from 100 to avoid rate limits
+        });
+        reviewRequests = response.data;
+        console.log(`Found ${reviewRequests.items.length} PRs with review requests`);
+      } catch (searchError: any) {
+        console.warn('Failed to search for review requests:', searchError.message);
+        
+        // Handle rate limiting specifically
+        if (searchError.status === 403 && searchError.message.includes('rate limit')) {
+          console.log('Rate limited, will use cached data or minimal repo approach');
+          throw new Error('GitHub rate limit exceeded. Please wait a few minutes before trying again.');
+        } else if (searchError.status === 403) {
+          console.log('Search API unavailable (403), falling back to repository-based approach');
+        } else {
+          console.log('Search failed, falling back to repository-based approach');
+        }
+      }
       
       // If no review requests found, get PRs from user's repos
       if (reviewRequests.items.length === 0) {
         console.log('No review requests found, fetching from user repos...');
         
-        // Get user's repos first
-        const repos = await this.getRepositories(1, 20);
+        // Get user's repos first (reduced number)
+        const repos = await this.getRepositories(1, 10);
         const pullRequests: GitHubPullRequest[] = [];
         
-        // Get open PRs from each repo
-        for (const repo of repos.slice(0, 5)) { // Limit to first 5 repos for performance
+        // Get open PRs from each repo (reduced and with delays)
+        for (const repo of repos.slice(0, 3)) { // Limit to first 3 repos to reduce API calls
           try {
+            // Add delay between repo requests
+            await new Promise(resolve => setTimeout(resolve, 200));
             const prs = await this.getPullRequests(repo.owner.login, repo.name, 'open');
             pullRequests.push(...prs);
-          } catch (error) {
+          } catch (error: any) {
             console.warn(`Failed to fetch PRs from ${repo.full_name}:`, error);
+            // If we hit rate limits, stop trying more repos
+            if (error.status === 403) {
+              console.log('Rate limited while fetching repo PRs, stopping');
+              break;
+            }
           }
         }
         
@@ -201,15 +238,31 @@ class GitHubService {
         return pullRequests;
       }
       
-      // Get all PRs authored by others that might need review
-      const { data: otherPRs } = await this.octokit!.rest.search.issuesAndPullRequests({
-        q: `type:pr state:open -author:${user.login} involves:${user.login}`,
-        sort: 'updated',
-        order: 'desc',
-        per_page: 50,
-      });
-      
-      console.log(`Found ${otherPRs.items.length} PRs involving user`);
+      // Get all PRs authored by others that might need review (skip if we already have review requests)
+      let otherPRs: any = { items: [] };
+      if (reviewRequests.items.length < 10) { // Only fetch if we don't have many review requests
+        try {
+          // Add delay before second search
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          const response = await this.octokit!.rest.search.issuesAndPullRequests({
+            q: `type:pr state:open -author:${user.login} involves:${user.login}`,
+            sort: 'updated',
+            order: 'desc',
+            per_page: 20, // Reduced from 50
+          });
+          otherPRs = response.data;
+          console.log(`Found ${otherPRs.items.length} PRs involving user`);
+        } catch (searchError: any) {
+          console.warn('Failed to search for PRs involving user:', searchError.message);
+          // Don't throw here, just continue with what we have
+          if (searchError.status === 403 && searchError.message.includes('rate limit')) {
+            console.log('Rate limited on second search, continuing with existing results');
+          }
+        }
+      } else {
+        console.log('Skipping second search since we have enough review requests');
+      }
 
       // Combine and deduplicate
       const allPRs = [...reviewRequests.items, ...otherPRs.items];
@@ -241,9 +294,19 @@ class GitHubService {
       repoCacheService.cachePullRequests('_all_', cacheKey, pullRequests);
       
       return pullRequests;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch PRs awaiting review:', error);
-      throw new Error('Failed to fetch PRs awaiting review');
+      
+      // Provide more specific error messages
+      if (error.status === 401) {
+        throw new Error('GitHub authentication failed. Please check your access token.');
+      } else if (error.status === 403) {
+        throw new Error('Insufficient GitHub permissions or rate limit exceeded. Please check your token permissions.');
+      } else if (error.status === 404) {
+        throw new Error('GitHub API endpoint not found. This might be a temporary issue.');
+      } else {
+        throw new Error(`Failed to fetch PRs: ${error.message || 'Unknown error'}`);
+      }
     }
   }
 

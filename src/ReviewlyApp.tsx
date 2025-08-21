@@ -34,7 +34,7 @@ const queryClient = new QueryClient({
 });
 
 // Route components
-const Dashboard = ({ pullRequests, onPullRequestSelect, isLoading }: any) => (
+const Dashboard = ({ pullRequests, onPullRequestSelect, isLoading, rateLimitError }: any) => (
   <motion.div
     key="dashboard"
     initial={{ opacity: 0, y: 20 }}
@@ -46,6 +46,7 @@ const Dashboard = ({ pullRequests, onPullRequestSelect, isLoading }: any) => (
       pullRequests={pullRequests}
       onPullRequestSelect={onPullRequestSelect}
       isLoading={isLoading}
+      rateLimitError={rateLimitError}
     />
   </motion.div>
 );
@@ -119,6 +120,7 @@ export const ReviewlyApp: React.FC = () => {
   const [repositories, setLocalRepositories] = useState<GitHubRepository[]>([]);
   const [allPullRequests, setAllPullRequests] = useState<GitHubPullRequest[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null);
 
   // Initialize services when authenticated
   useEffect(() => {
@@ -144,10 +146,23 @@ export const ReviewlyApp: React.FC = () => {
     
     setIsInitialized(true);
     
-    // Load data in background after initialization
-    setLoading(true);
+    // Don't show loading on refresh - let cached data load instantly
+    // Only show loading on first visit when there's truly no data
+    const hasExistingData = allPullRequests.length > 0 || repositories.length > 0;
     
-    // Start loading data without blocking the UI
+    // Only show loading if this is truly a first-time load
+    if (!hasExistingData) {
+      // Check if this looks like a page refresh by checking for any cached data
+      const hasAnyCachedData = Object.keys(localStorage).some(key => 
+        key.startsWith('repo_') || key.includes('cache') || key.includes('prs')
+      );
+      
+      if (!hasAnyCachedData) {
+        setLoading(true);
+      }
+    }
+    
+    // Start loading data
     Promise.all([
       loadRepositories(),
       loadAllPullRequests()
@@ -168,11 +183,20 @@ export const ReviewlyApp: React.FC = () => {
 
   const loadAllPullRequests = async () => {
     try {
+      setRateLimitError(null); // Clear any previous rate limit errors
       const prs = await githubService.getAllPullRequestsAwaitingReview();
       setAllPullRequests(prs);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load pull requests awaiting review:', error);
       setAllPullRequests([]);
+      
+      // Handle different types of errors
+      if (error.message.includes('rate limit exceeded')) {
+        setRateLimitError(error.message);
+      } else if (error.message.includes('authentication failed') || error.message.includes('401')) {
+        console.warn('Authentication failed, user may need to re-authenticate');
+        // Note: In a production app, you might want to trigger a re-authentication flow here
+      }
     }
   };
 
@@ -238,6 +262,7 @@ export const ReviewlyApp: React.FC = () => {
                   pullRequests={allPullRequests}
                   onPullRequestSelect={handlePullRequestSelect}
                   isLoading={isLoading}
+                  rateLimitError={rateLimitError}
                 />
               } 
             />

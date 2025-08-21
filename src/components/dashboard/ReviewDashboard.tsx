@@ -21,31 +21,39 @@ import {
   Zap,
 } from "lucide-react";
 import { GitHubPullRequest } from "../../types/github";
+import { prStatusService } from "../../services/prStatusService";
 
 interface ReviewDashboardProps {
   pullRequests: GitHubPullRequest[];
   onPullRequestSelect: (pr: GitHubPullRequest) => void;
   isLoading: boolean;
+  rateLimitError?: string | null;
 }
 
 export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
   pullRequests,
   onPullRequestSelect,
   isLoading,
+  rateLimitError,
 }) => {
   const [filter, setFilter] = useState<
-    "all" | "ready" | "delayed" | "completed"
+    "ready" | "spicy" | "completed" | "delayed"
   >("ready");
   const [sortBy, setSortBy] = useState<"updated" | "created" | "priority">(
     "priority"
   );
+  // Initialize state from localStorage
   const [completedReviews, setCompletedReviews] = useState<Set<number>>(
-    new Set()
+    () => prStatusService.getCompletedPRs()
   );
   const [showCompleted, setShowCompleted] = useState(false);
-  const [delayedReviews, setDelayedReviews] = useState<Set<number>>(new Set());
+  const [delayedReviews, setDelayedReviews] = useState<Set<number>>(
+    () => prStatusService.getDelayedPRs()
+  );
   const [checkingAnimation, setCheckingAnimation] = useState<number | null>(null);
-  const [spicyReviews, setSpicyReviews] = useState<Set<number>>(new Set());
+  const [spicyReviews, setSpicyReviews] = useState<Set<number>>(
+    () => prStatusService.getSpicyPRs()
+  );
   const [spiceAnimation, setSpiceAnimation] = useState<number | null>(null);
 
   const getPriorityLevel = (
@@ -108,6 +116,21 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
     // Add a slight delay for the animation
     setTimeout(() => {
       setCompletedReviews((prev) => new Set([...prev, prId]));
+      // Clear other statuses when completing
+      setSpicyReviews((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(prId);
+        return newSet;
+      });
+      setDelayedReviews((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(prId);
+        return newSet;
+      });
+      
+      prStatusService.setCompleted(prId, true);
+      prStatusService.setSpicy(prId, false);
+      prStatusService.setDelayed(prId, false);
       setCheckingAnimation(null);
     }, 500);
   };
@@ -119,6 +142,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
       newSet.delete(prId);
       return newSet;
     });
+    prStatusService.setCompleted(prId, false); // Save to localStorage
   };
 
   const handleDelayUntilTomorrow = (prId: number, event: React.MouseEvent) => {
@@ -135,19 +159,51 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
     // After animation, update state
     setTimeout(() => {
       setDelayedReviews((prev) => new Set([...prev, prId]));
+      // Clear other statuses when delaying
+      setSpicyReviews((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(prId);
+        return newSet;
+      });
+      setCompletedReviews((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(prId);
+        return newSet;
+      });
+      
+      prStatusService.setDelayed(prId, true);
+      prStatusService.setSpicy(prId, false);
+      prStatusService.setCompleted(prId, false);
     }, 300);
-    
-    // Remove the delay after 24 hours (for demo, we'll just keep it)
-    // In a real app, you'd store this with timestamps and check against them
   };
 
   const handleSpiceItUp = (prId: number, event: React.MouseEvent) => {
     event.stopPropagation();
+    
+    // Clear other statuses when spicing
+    setDelayedReviews((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(prId);
+      return newSet;
+    });
+    setCompletedReviews((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(prId);
+      return newSet;
+    });
+    
+    // Add to spicy reviews
+    setSpicyReviews((prev) => new Set([...prev, prId]));
+    
+    prStatusService.setSpicy(prId, true);
+    prStatusService.setDelayed(prId, false);
+    prStatusService.setCompleted(prId, false);
+    
+    // Show special animation effect
     setSpiceAnimation(prId);
     
-    // Add spicy animation effects
+    // Clear animation state after animation completes
     setTimeout(() => {
-      setSpicyReviews((prev) => new Set([...prev, prId]));
       setSpiceAnimation(null);
     }, 800);
   };
@@ -159,6 +215,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
       newSet.delete(prId);
       return newSet;
     });
+    prStatusService.setSpicy(prId, false); // Save to localStorage
   };
 
   const handleUndelay = (prId: number, event: React.MouseEvent) => {
@@ -168,6 +225,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
       newSet.delete(prId);
       return newSet;
     });
+    prStatusService.setDelayed(prId, false); // Save to localStorage
   };
 
   const filteredPRs = pullRequests
@@ -198,7 +256,11 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
       
       // Apply main filter
       if (filter === "ready") {
-        return !pr.draft && !completed; // Ready for review (not draft, not completed)
+        return !pr.draft && !completed; // Ready for review (not draft, not completed) - includes spicy PRs
+      }
+      
+      if (filter === "spicy") {
+        return spicyReviews.has(pr.id);
       }
       
       return true; // For "all" filter
@@ -264,6 +326,53 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
 
   return (
     <div className="h-full flex flex-col bg-black">
+      {/* Rate Limit Error Banner */}
+      {rateLimitError && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-orange-600/10 via-red-600/10 to-yellow-600/10 border-b border-orange-800"
+        >
+          <div className="max-w-4xl mx-auto px-6 py-4">
+            <div className="flex items-center space-x-3">
+              <div className="flex-shrink-0">
+                <AlertTriangle className="w-6 h-6 text-orange-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-orange-400 mb-1">
+                  🚫 GitHub API Rate Limit Exceeded
+                </h3>
+                <p className="text-sm text-gray-300 mb-2">
+                  We've hit GitHub's API rate limit. Don't worry, your cached data is still here!
+                </p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 space-y-2 sm:space-y-0 text-xs text-gray-400">
+                  <div className="flex items-center space-x-2">
+                    <span>⏰</span>
+                    <span>Rate limits reset every hour</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span>💡</span>
+                    <span>Try refreshing in a few minutes</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span>🔧</span>
+                    <span>Consider using a GitHub App token for higher limits</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-shrink-0">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-3 py-1.5 text-sm text-orange-400 hover:text-orange-300 hover:bg-orange-400/10 rounded-lg transition-colors border border-orange-400/20 hover:border-orange-400/40"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Fun Celebration Banner */}
       {completedCount > 0 && (
         <motion.div
@@ -400,21 +509,14 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
           </div>
 
           {/* Quick Stats */}
-          <div className="grid grid-cols-5 gap-4 mb-8">
+          <div className="grid grid-cols-4 gap-4 mb-8">
             {[
               {
-                key: "urgent",
-                label: "Urgent",
-                count: priorityCounts.urgent || 0,
-                color: "text-orange-400 bg-gray-900 border-gray-700",
-                icon: <AlertTriangle className="w-4 h-4" />,
-              },
-              {
-                key: "high",
-                label: "High Priority",
-                count: priorityCounts.high || 0,
-                color: "text-yellow-400 bg-gray-900 border-gray-700",
-                icon: <Clock className="w-4 h-4" />,
+                key: "ready",
+                label: "Ready",
+                count: pullRequests.filter((pr) => !pr.draft && !completedReviews.has(pr.id) && !delayedReviews.has(pr.id)).length,
+                color: "text-blue-400 bg-blue-900/20 border-blue-700/30",
+                icon: <Eye className="w-4 h-4" />,
               },
               {
                 key: "spicy",
@@ -427,15 +529,15 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                 key: "completed",
                 label: "Completed",
                 count: completedCount,
-                color: "text-green-400 bg-gray-900 border-gray-700",
+                color: "text-green-400 bg-green-900/20 border-green-700/30",
                 icon: <CheckCircle className="w-4 h-4" />,
               },
               {
-                key: "remaining",
-                label: "Remaining",
-                count: totalCount - completedCount,
-                color: "text-blue-400 bg-gray-900 border-gray-700",
-                icon: <Eye className="w-4 h-4" />,
+                key: "delayed",
+                label: "Delayed",
+                count: delayedReviews.size,
+                color: "text-yellow-400 bg-yellow-900/20 border-yellow-700/30",
+                icon: <Moon className="w-4 h-4" />,
               },
             ].map(({ key, label, count, color, icon }) => (
               <motion.div
@@ -539,6 +641,11 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                     count: pullRequests.filter((pr) => !pr.draft && !completedReviews.has(pr.id) && !delayedReviews.has(pr.id)).length,
                   },
                   {
+                    key: "spicy",
+                    label: "🔥 Spicy",
+                    count: spicyCount,
+                  },
+                  {
                     key: "completed",
                     label: "Completed",
                     count: completedCount,
@@ -548,7 +655,6 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                     label: "Delayed",
                     count: delayedReviews.size,
                   },
-                  { key: "all", label: "All", count: pullRequests.length },
                 ].map(({ key, label, count }) => (
                   <button
                     key={key}
@@ -586,13 +692,35 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
         <div className="max-w-4xl mx-auto w-full p-6">
           {filteredPRs.length === 0 ? (
             <div className="text-center py-12">
-              <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-2">
-                🏖️ You're living the dream! 
-              </h3>
-              <p className="text-gray-400">
-                No PRs to review = more time for coffee! ☕
-              </p>
+              {pullRequests.length === 0 && !isLoading ? (
+                <>
+                  <AlertTriangle className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-white mb-2">
+                    🔍 No Pull Requests Found
+                  </h3>
+                  <div className="text-gray-400 space-y-2 max-w-md mx-auto">
+                    <p>This could mean:</p>
+                    <ul className="text-sm text-left space-y-1">
+                      <li>• No PRs are waiting for your review</li>
+                      <li>• Your GitHub token needs additional permissions</li>
+                      <li>• You don't have access to repositories with open PRs</li>
+                    </ul>
+                    <p className="text-xs text-gray-500 mt-4">
+                      Make sure your token has <code className="bg-gray-800 px-1 rounded">repo</code> scope
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-white mb-2">
+                    🏖️ You're living the dream! 
+                  </h3>
+                  <p className="text-gray-400">
+                    No PRs to review = more time for coffee! ☕
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -603,7 +731,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`group relative ${completed ? "opacity-60" : ""} ${spicy ? "ring-2 ring-red-500/30 ring-offset-2 ring-offset-black" : ""}`}
+                  className={`group relative ${completed ? "opacity-60" : ""} ${spicy ? "ring-2 ring-red-500/30 ring-offset-2 ring-offset-black rounded-lg" : ""}`}
                 >
                   {/* Spicy flames animation */}
                   {(spicy || spiceAnimation === pr.id) && (
@@ -626,31 +754,104 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                         }}
                         className="absolute inset-0 bg-gradient-to-r from-red-500/20 via-orange-500/30 to-yellow-500/20 rounded-lg blur-md"
                       />
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <motion.div
-                          key={i}
-                          animate={{
-                            y: [0, -20, -40],
-                            opacity: [1, 0.8, 0],
-                            scale: [0.5, 1, 0.8],
-                            rotate: [0, Math.random() * 30 - 15, Math.random() * 60 - 30],
-                          }}
-                          transition={{
-                            duration: 1.5 + Math.random() * 0.5,
-                            repeat: Infinity,
-                            delay: i * 0.2,
-                            ease: "easeOut"
-                          }}
-                          className={`absolute text-red-500 text-xs pointer-events-none`}
-                          style={{
-                            left: `${20 + i * 15}%`,
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                          }}
-                        >
-                          🔥
-                        </motion.div>
-                      ))}
+                      {Array.from({ length: 3 }).map((_, i) => {
+                        // Define the three positions
+                        const positions = [
+                          { 
+                            className: "top-2 left-2",
+                            movement: { y: [0, -12, -20], x: [0, 2, 4] } // Up and right
+                          },
+                          { 
+                            className: "top-1/2 right-4 transform -translate-y-1/2", // Middle-right
+                            movement: { y: [0, -8, -12], x: [0, -2, -4] } // Up and left
+                          },
+                          { 
+                            className: "bottom-3 left-1/2 transform -translate-x-1/2", // Bottom center
+                            movement: { y: [0, -10, -16], x: [0, 0, 0] } // Straight up
+                          }
+                        ];
+                        
+                        const position = positions[i % 3];
+                        
+                        return (
+                          <motion.div
+                            key={i}
+                            animate={{
+                              ...position.movement,
+                              opacity: [0, 1, 0.8, 0], // Pop in, then fade out
+                              scale: [0.7, 0.9, 0.7],  // Slightly larger size change
+                            }}
+                            transition={{
+                              duration: 3,        // Slower, more subtle
+                              repeat: Infinity,
+                              delay: i * 1.2 + Math.random() * 2, // Staggered timing
+                              ease: "easeOut"
+                            }}
+                            className={`absolute text-red-500 text-sm pointer-events-none ${position.className}`}
+                          >
+                            {/* Random emoji each cycle */}
+                            {Math.random() > 0.3 ? '🔥' : '🌶️'}
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Sleepy animation for delayed PRs */}
+                  {delayed && (
+                    <div className="absolute -inset-1 pointer-events-none">
+                      <motion.div
+                        animate={{
+                          opacity: [0.3, 0.6, 0.3],
+                          scale: [0.98, 1.01, 0.98],
+                        }}
+                        transition={{
+                          duration: 4,
+                          repeat: Infinity,
+                          ease: "easeInOut"
+                        }}
+                        className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 via-blue-500/15 to-purple-500/10 rounded-lg blur-md"
+                      />
+                      {Array.from({ length: 3 }).map((_, i) => {
+                        // Define the three positions for sleepy emojis
+                        const positions = [
+                          { 
+                            className: "top-2 left-2",
+                            movement: { y: [0, -10, -16], x: [0, 1, 2] } // Gentle up and right
+                          },
+                          { 
+                            className: "top-1/2 right-4 transform -translate-y-1/2", // Middle-right
+                            movement: { y: [0, -6, -10], x: [0, -1, -2] } // Gentle up and left
+                          },
+                          { 
+                            className: "bottom-3 left-1/2 transform -translate-x-1/2", // Bottom center
+                            movement: { y: [0, -8, -12], x: [0, 0, 0] } // Gentle straight up
+                          }
+                        ];
+                        
+                        const position = positions[i % 3];
+                        
+                        return (
+                          <motion.div
+                            key={`sleepy-${i}`}
+                            animate={{
+                              ...position.movement,
+                              opacity: [0, 0.8, 0.6, 0], // Soft fade
+                              scale: [0.9, 1.1, 0.9],  // Even larger and more visible
+                            }}
+                            transition={{
+                              duration: 4,        // Even slower for sleepy
+                              repeat: Infinity,
+                              delay: i * 1.8 + Math.random() * 3, // More spaced out
+                              ease: "easeOut"
+                            }}
+                            className={`absolute text-blue-400 text-sm pointer-events-none ${position.className}`}
+                          >
+                            {/* Random sleepy emoji each cycle */}
+                            {Math.random() > 0.5 ? '😴' : '💤'}
+                          </motion.div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -738,6 +939,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                             Draft
                           </span>
                         )}
+                        
                       </div>
 
                       {/* Title */}
@@ -777,50 +979,62 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 ml-4">
-                      {delayed ? (
+                      {completed ? (
+                        // Completed PRs only show completion status, no other actions
+                        null
+                      ) : delayed ? (
                         <button
                           onClick={(e) => handleUndelay(pr.id, e)}
-                          className="flex items-center space-x-1 px-2 py-1 bg-yellow-900/20 hover:bg-yellow-800/30 border border-yellow-700/30 rounded text-xs text-yellow-400 hover:text-yellow-300 transition-colors"
+                          className="flex items-center space-x-1 px-1.5 py-0.5 bg-yellow-900/20 hover:bg-yellow-800/30 border border-yellow-700/30 rounded text-xs text-yellow-400 hover:text-yellow-300 transition-colors h-5"
                           title="Bring back to review queue"
                         >
-                          <ArrowRight className="w-3 h-3 rotate-180" />
+                          <ArrowRight className="w-2.5 h-2.5 rotate-180" />
                           <span>Restore</span>
                         </button>
-                      ) : !completed && (
+                      ) : spicy ? (
                         <>
-                          {spicy ? (
-                            <button
-                              onClick={(e) => handleCoolDown(pr.id, e)}
-                              className="flex items-center space-x-1 px-2 py-1 bg-red-900/30 hover:bg-red-800/40 border border-red-700/40 rounded text-xs text-red-400 hover:text-red-300 transition-colors"
-                              title="Cool it down"
-                            >
-                              <Zap className="w-3 h-3" />
-                              <span>Chill</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={(e) => handleSpiceItUp(pr.id, e)}
-                              className="flex items-center space-x-1 px-2 py-1 bg-gray-900 hover:bg-red-900/30 border border-gray-800 hover:border-red-700/40 rounded text-xs text-gray-400 hover:text-red-400 transition-colors group"
-                              title="🌶️ Make this spicy! (urgent priority)"
-                            >
-                              <motion.div
-                                animate={spiceAnimation === pr.id ? {
-                                  scale: [1, 1.5, 1],
-                                  rotate: [0, 180, 360]
-                                } : {}}
-                                transition={{ duration: 0.8 }}
-                              >
-                                <Flame className="w-3 h-3 group-hover:text-red-500" />
-                              </motion.div>
-                              <span>Spice It!</span>
-                            </button>
-                          )}
+                          <button
+                            onClick={(e) => handleCoolDown(pr.id, e)}
+                            className="flex items-center space-x-1 px-1.5 py-0.5 bg-red-900/30 hover:bg-red-800/40 border border-red-700/40 rounded text-xs text-red-400 hover:text-red-300 transition-colors h-5"
+                            title="Cool it down"
+                          >
+                            <Zap className="w-2.5 h-2.5" />
+                            <span>Chill</span>
+                          </button>
                           <button
                             onClick={(e) => handleDelayUntilTomorrow(pr.id, e)}
-                            className="flex items-center space-x-1 px-2 py-1 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded text-xs text-gray-400 hover:text-yellow-400 transition-colors"
+                            className="flex items-center space-x-1 px-1.5 py-0.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded text-xs text-gray-400 hover:text-yellow-400 transition-colors h-5"
                             title="Delay until tomorrow"
                           >
-                            <Moon className="w-3 h-3" />
+                            <Moon className="w-2.5 h-2.5" />
+                            <span>Tomorrow</span>
+                          </button>
+                        </>
+                      ) : (
+                        // Normal PR (not completed, not delayed, not spicy)
+                        <>
+                          <button
+                            onClick={(e) => handleSpiceItUp(pr.id, e)}
+                            className="flex items-center space-x-1 px-1.5 py-0.5 bg-gray-900 hover:bg-red-900/30 border border-gray-800 hover:border-red-700/40 rounded text-xs text-gray-400 hover:text-red-400 transition-colors group h-5"
+                            title="🌶️ Make this spicy! (urgent priority)"
+                          >
+                            <motion.div
+                              animate={spiceAnimation === pr.id ? {
+                                scale: [1, 1.5, 1],
+                                rotate: [0, 180, 360]
+                              } : {}}
+                              transition={{ duration: 0.8 }}
+                            >
+                              <Flame className="w-2.5 h-2.5 group-hover:text-red-500" />
+                            </motion.div>
+                            <span>Spice It!</span>
+                          </button>
+                          <button
+                            onClick={(e) => handleDelayUntilTomorrow(pr.id, e)}
+                            className="flex items-center space-x-1 px-1.5 py-0.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded text-xs text-gray-400 hover:text-yellow-400 transition-colors h-5"
+                            title="Delay until tomorrow"
+                          >
+                            <Moon className="w-2.5 h-2.5" />
                             <span>Tomorrow</span>
                           </button>
                         </>
@@ -830,11 +1044,11 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="flex items-center space-x-1 px-2 py-1 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded text-xs text-gray-400 hover:text-white transition-colors"
+                        className="flex items-center space-x-1 px-1.5 py-0.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded text-xs text-gray-400 hover:text-white transition-colors h-5"
                         title="View on GitHub"
                       >
-                        <Github className="w-3 h-3" />
-                        <ExternalLink className="w-3 h-3" />
+                        <Github className="w-2.5 h-2.5" />
+                        <ExternalLink className="w-2.5 h-2.5" />
                       </a>
                       <ArrowRight className="w-5 h-5 text-gray-400" />
                     </div>

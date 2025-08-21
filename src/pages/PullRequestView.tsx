@@ -35,6 +35,7 @@ import { AIReviewSummary } from '../types/ai';
 import { githubService } from '../services/github';
 import { aiService } from '../services/ai';
 import { aiCacheService } from '../services/aiCache';
+import { prStatusService } from '../services/prStatusService';
 
 interface PullRequestViewProps {
   pullRequest: GitHubPullRequest;
@@ -57,6 +58,11 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [showDescription, setShowDescription] = useState(false);
   const [showAiDrawer, setShowAiDrawer] = useState(false);
+  
+  // PR Status states
+  const [isSpicy, setIsSpicy] = useState(() => prStatusService.getStatus(pullRequest.id)?.spicy || false);
+  const [isDelayed, setIsDelayed] = useState(() => prStatusService.getStatus(pullRequest.id)?.delayed || false);
+  const [isCompleted, setIsCompleted] = useState(() => prStatusService.getStatus(pullRequest.id)?.completed || false);
   const [aiSettings, setAiSettings] = useState({
     autoReview: false,
     severity: 'medium' as const,
@@ -140,6 +146,25 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
     } finally {
       setIsLoadingFiles(false);
     }
+  };
+
+  // PR Status handlers
+  const handleSpiceToggle = () => {
+    const newSpicy = !isSpicy;
+    setIsSpicy(newSpicy);
+    prStatusService.setSpicy(pullRequest.id, newSpicy);
+  };
+
+  const handleDelayToggle = () => {
+    const newDelayed = !isDelayed;
+    setIsDelayed(newDelayed);
+    prStatusService.setDelayed(pullRequest.id, newDelayed);
+  };
+
+  const handleCompleteToggle = () => {
+    const newCompleted = !isCompleted;
+    setIsCompleted(newCompleted);
+    prStatusService.setCompleted(pullRequest.id, newCompleted);
   };
 
   const triggerAIReview = async (prFiles?: GitHubFile[], contents?: Record<string, { original: string; modified: string }>) => {
@@ -304,6 +329,23 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
               }`}>
                 {pullRequest.state}
               </span>
+
+              {/* Status Badges */}
+              {isSpicy && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-300 border border-red-500/30">
+                  🔥 Spicy
+                </span>
+              )}
+              {isDelayed && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                  😴 Delayed
+                </span>
+              )}
+              {isCompleted && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-300 border border-green-500/30">
+                  ✅ Done
+                </span>
+              )}
               
               <a
                 href={pullRequest.html_url}
@@ -316,6 +358,45 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
                 <span>GitHub</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
+            </div>
+
+            {/* Status Control Buttons */}
+            <div className="flex items-center space-x-3 mb-4">
+              <button
+                onClick={handleSpiceToggle}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  isSpicy
+                    ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30'
+                    : 'bg-gray-800 text-gray-300 border border-gray-600 hover:bg-gray-700'
+                }`}
+              >
+                <span>🔥</span>
+                <span>{isSpicy ? 'Cool Down' : 'Spice It!'}</span>
+              </button>
+              
+              <button
+                onClick={handleDelayToggle}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  isDelayed
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
+                    : 'bg-gray-800 text-gray-300 border border-gray-600 hover:bg-gray-700'
+                }`}
+              >
+                <span>😴</span>
+                <span>{isDelayed ? 'Undelay' : 'Delay'}</span>
+              </button>
+              
+              <button
+                onClick={handleCompleteToggle}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  isCompleted
+                    ? 'bg-green-500/20 text-green-300 border border-green-500/30 hover:bg-green-500/30'
+                    : 'bg-gray-800 text-gray-300 border border-gray-600 hover:bg-gray-700'
+                }`}
+              >
+                <span>✅</span>
+                <span>{isCompleted ? 'Mark Incomplete' : 'Mark Complete'}</span>
+              </button>
             </div>
 
             <div className="flex items-center space-x-6 text-sm text-gray-400 mb-4">

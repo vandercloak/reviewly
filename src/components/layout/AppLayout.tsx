@@ -16,7 +16,9 @@ import {
   Zap,
   Github,
   ExternalLink,
-  ArrowLeft
+  ArrowLeft,
+  Menu,
+  X
 } from 'lucide-react';
 import { useAppStore } from '../../store/app';
 import { useAuthStore } from '../../store/auth';
@@ -51,6 +53,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [notifications, setNotifications] = useState(3);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -101,54 +104,90 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
         <header className="h-14 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-4">
-          {/* Left Section */}
-          <div className="flex items-center space-x-4">
-            {/* Back to Dashboard Button */}
+          {/* Mobile Menu Button */}
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="md:hidden p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              aria-label="Toggle mobile menu"
+            >
+              {isMobileMenuOpen ? (
+                <X className="w-5 h-5 text-gray-400" />
+              ) : (
+                <Menu className="w-5 h-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Left Section - Desktop */}
+            <div className="hidden md:flex items-center space-x-4">
+              {/* Back to Dashboard Button */}
+              {location.pathname !== '/app' && (
+                <button
+                  onClick={() => navigate('/app')}
+                  className="flex items-center space-x-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                  title="Back to Dashboard"
+                >
+                  <ArrowLeft className="w-4 h-4 text-gray-400" />
+                  <span className="text-sm text-gray-300 hidden lg:block">Dashboard</span>
+                </button>
+              )}
+
+              {/* Breadcrumbs - Hidden on smaller screens */}
+              <nav className="hidden lg:flex items-center space-x-2 text-sm">
+                {getBreadcrumbs().map((crumb, index, arr) => (
+                  <React.Fragment key={index}>
+                    <span className={index === arr.length - 1 ? 'text-white font-medium' : 'text-gray-400'}>
+                      {crumb}
+                    </span>
+                    {index < arr.length - 1 && (
+                      <span className="text-gray-600">/</span>
+                    )}
+                  </React.Fragment>
+                ))}
+              </nav>
+            </div>
+
+            {/* Mobile Back Button */}
             {location.pathname !== '/app' && (
               <button
                 onClick={() => navigate('/app')}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                className="md:hidden p-2 hover:bg-gray-800 rounded-lg transition-colors"
                 title="Back to Dashboard"
               >
-                <ArrowLeft className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-300">Dashboard</span>
+                <ArrowLeft className="w-5 h-5 text-gray-400" />
               </button>
             )}
-
-            {/* Breadcrumbs */}
-            <nav className="flex items-center space-x-2 text-sm">
-              {getBreadcrumbs().map((crumb, index, arr) => (
-                <React.Fragment key={index}>
-                  <span className={index === arr.length - 1 ? 'text-white font-medium' : 'text-gray-400'}>
-                    {crumb}
-                  </span>
-                  {index < arr.length - 1 && (
-                    <span className="text-gray-600">/</span>
-                  )}
-                </React.Fragment>
-              ))}
-            </nav>
           </div>
 
-          {/* Center Section */}
-          <div className="flex-1 max-w-xl mx-4">
+          {/* Center Section - Search */}
+          <div className="flex-1 max-w-xl mx-4 hidden sm:block">
             <button
               onClick={() => setIsCommandPaletteOpen(true)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-left text-gray-400 hover:bg-gray-800 hover:border-gray-600 transition-colors flex items-center space-x-3"
             >
               <Search className="w-4 h-4" />
-              <span>Search repositories, files, code...</span>
-              <div className="ml-auto flex items-center space-x-1">
+              <span className="hidden md:inline">Search repositories, files, code...</span>
+              <span className="md:hidden">Search...</span>
+              <div className="ml-auto hidden lg:flex items-center space-x-1">
                 <kbd className="px-1.5 py-0.5 text-xs bg-gray-700 rounded border border-gray-600">⌘</kbd>
                 <kbd className="px-1.5 py-0.5 text-xs bg-gray-700 rounded border border-gray-600">K</kbd>
               </div>
             </button>
           </div>
 
+          {/* Mobile Search Button */}
+          <button
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="sm:hidden p-2 hover:bg-gray-800 rounded-lg transition-colors"
+            title="Search"
+          >
+            <Search className="w-5 h-5 text-gray-400" />
+          </button>
+
           {/* Right Section */}
           <div className="flex items-center space-x-2">
-            {/* Layout Mode Toggle */}
-            <div className="flex items-center bg-gray-900 rounded-lg p-1">
+            {/* Layout Mode Toggle - Hidden on mobile */}
+            <div className="hidden lg:flex items-center bg-gray-900 rounded-lg p-1">
               {(['split', 'unified', 'side-by-side'] as const).map((mode) => (
                 <button
                   key={mode}
@@ -167,38 +206,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               ))}
             </div>
 
-            {/* Quick Actions */}
-            {selectedPullRequest && (
-              <a
-                href={selectedPullRequest.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-                title="View PR on GitHub"
-              >
-                <Github className="w-4 h-4 text-gray-400" />
-              </a>
-            )}
-
-            <button
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className="w-4 h-4 text-gray-400" />
-            </button>
-
-            <button
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            >
-              {isFullscreen ? (
-                <Minimize2 className="w-4 h-4 text-gray-400" />
-              ) : (
-                <Maximize2 className="w-4 h-4 text-gray-400" />
-              )}
-            </button>
-
+            {/* Essential Actions - Always visible */}
             {/* Notifications */}
             <button className="relative p-2 hover:bg-gray-800 rounded-lg transition-colors">
               <Bell className="w-4 h-4 text-gray-400" />
@@ -209,27 +217,131 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               )}
             </button>
 
-            {/* AI Status */}
-            <div className="flex items-center space-x-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-lg">
-              <Zap className="w-3 h-3 text-green-400" />
-              <span className="text-xs text-green-400 font-medium">AI Online</span>
-            </div>
-
-            {/* User Menu */}
+            {/* User Avatar */}
             {user && (
-              <div className="flex items-center space-x-2">
+              <button 
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="flex items-center space-x-2"
+              >
                 <img
                   src={user.avatar_url}
                   alt={user.login}
                   className="w-8 h-8 rounded-full border border-gray-600"
                 />
-                <button className="p-1 hover:bg-gray-800 rounded">
-                  <MoreHorizontal className="w-4 h-4 text-gray-400" />
-                </button>
-              </div>
+              </button>
             )}
           </div>
         </header>
+
+        {/* Mobile Menu Dropdown */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="md:hidden bg-gray-950 border-b border-gray-800 overflow-hidden"
+            >
+              <div className="p-4 space-y-3">
+                {/* Breadcrumbs on mobile */}
+                <nav className="flex items-center space-x-2 text-sm pb-3 border-b border-gray-800">
+                  {getBreadcrumbs().map((crumb, index, arr) => (
+                    <React.Fragment key={index}>
+                      <span className={index === arr.length - 1 ? 'text-white font-medium' : 'text-gray-400'}>
+                        {crumb}
+                      </span>
+                      {index < arr.length - 1 && (
+                        <span className="text-gray-600">/</span>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </nav>
+
+                {/* Quick Actions */}
+                <div className="grid grid-cols-2 gap-3">
+                  {selectedPullRequest && (
+                    <a
+                      href={selectedPullRequest.html_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center space-x-2 p-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                    >
+                      <Github className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-300">View on GitHub</span>
+                    </a>
+                  )}
+
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="flex items-center space-x-2 p-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm text-gray-300">Refresh</span>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('/app/settings')}
+                    className="flex items-center space-x-2 p-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <Settings className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm text-gray-300">Settings</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className="flex items-center space-x-2 p-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    {isFullscreen ? (
+                      <>
+                        <Minimize2 className="w-4 h-4 text-gray-400" />
+                        <span className="text-sm text-gray-300">Exit Fullscreen</span>
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 className="w-4 h-4 text-gray-400" />
+                        <span className="text-sm text-gray-300">Fullscreen</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* AI Status */}
+                <div className="flex items-center justify-center space-x-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                  <Zap className="w-4 h-4 text-green-400" />
+                  <span className="text-sm text-green-400 font-medium">AI Online</span>
+                </div>
+
+                {/* Layout Mode Toggle on Mobile */}
+                <div className="pt-3 border-t border-gray-800">
+                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">Layout Mode</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['split', 'unified', 'side-by-side'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => {
+                          setLayoutMode(mode);
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className={`p-3 text-sm rounded-lg transition-colors flex flex-col items-center space-y-1 ${
+                          layoutMode === mode
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                        }`}
+                      >
+                        <span className="text-lg">
+                          {mode === 'split' && '⚊'}
+                          {mode === 'unified' && '▤'}
+                          {mode === 'side-by-side' && '◫'}
+                        </span>
+                        <span className="capitalize text-xs">{mode.replace('-', ' ')}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
 
         {/* Main Content Area */}

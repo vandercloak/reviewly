@@ -1,9 +1,196 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Code2, ArrowRight, Github, Star, Sparkles, Rocket, Zap, TrendingUp, Shield, Users, Timer, Brain } from 'lucide-react';
+import { Code2, ArrowRight, Github, Star, Sparkles, Rocket, Zap, TrendingUp, Shield, Users, Timer, Brain, CheckCircle, Clock, Calendar } from 'lucide-react';
 import { ReviewlyApp } from './ReviewlyApp';
 import { CollaborativeCursors } from './components/ui/CollaborativeCursors';
+
+const FeatureDisplaySection = () => {
+  const [activeFeature, setActiveFeature] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+
+  const featureDisplays = [
+    {
+      id: 1,
+      title: "Smart Dashboard",
+      description: "Intelligent PR prioritization with visual progress tracking.",
+      gifSrc: "/gifs/smart-dashboard.gif",
+      gifAlt: "Smart Dashboard Demo"
+    },
+    {
+      id: 2,
+      title: "Spicy PR System",
+      description: "Mark urgent PRs as 'spicy' 🔥 to prioritize critical reviews.",
+      gifSrc: "/gifs/spicy-prs.gif",
+      gifAlt: "Spicy PR System Demo"
+    },
+    {
+      id: 3,
+      title: "AI-Powered Reviews",
+      description: "Claude AI analyzes code and suggests improvements automatically.",
+      gifSrc: "/gifs/ai-reviews.gif",
+      gifAlt: "AI-Powered Reviews Demo"
+    },
+    {
+      id: 4,
+      title: "Real-time Collaboration",
+      description: "Live cursors show who's reviewing what to avoid conflicts.",
+      gifSrc: "/gifs/collaboration.gif",
+      gifAlt: "Real-time Collaboration Demo"
+    },
+    {
+      id: 5,
+      title: "Smart Organization",
+      description: "Delay PRs, track completion, and stay organized effortlessly.",
+      gifSrc: "/gifs/organization.gif",
+      gifAlt: "Smart Organization Demo"
+    }
+  ];
+
+  // Auto-cycle through features every 15 seconds
+  useEffect(() => {
+    if (!isAutoPlaying) return;
+    
+    const interval = setInterval(() => {
+      setActiveFeature((prev) => (prev + 1) % featureDisplays.length);
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [isAutoPlaying, featureDisplays.length]);
+
+  const handleFeatureClick = (index) => {
+    setActiveFeature(index);
+    setIsAutoPlaying(false); // Stop auto-cycling when user interacts
+  };
+
+  return (
+    <div className="relative">
+      <div className="text-center mb-12">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 backdrop-blur-xl rounded-full mb-4"
+        >
+          <Sparkles className="w-4 h-4 text-purple-400" />
+          <span className="text-sm font-medium text-purple-400">See It In Action</span>
+        </motion.div>
+        <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
+          Experience the Magic
+        </h2>
+        <p className="text-xl text-gray-400 max-w-3xl mx-auto">
+          Watch how Reviewly transforms your code review workflow from chaos to clarity
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-8 items-start">
+        {/* Left side - Feature tabs */}
+        <div className="space-y-3">
+          {featureDisplays.map((feature, index) => (
+            <motion.button
+              key={feature.id}
+              onClick={() => handleFeatureClick(index)}
+              className={`w-full text-left p-4 rounded-2xl border transition-all duration-300 ${
+                activeFeature === index
+                  ? 'bg-gradient-to-r from-purple-900/30 to-blue-900/30 border-purple-500/30 shadow-lg shadow-purple-500/10'
+                  : 'bg-gray-900/30 border-gray-700 hover:border-gray-600 hover:bg-gray-900/50'
+              }`}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <h3 className={`text-lg font-bold mb-2 transition-colors duration-300 ${
+                activeFeature === index ? 'text-white' : 'text-gray-300'
+              }`}>
+                {feature.title}
+              </h3>
+              
+              <p className={`text-sm leading-relaxed transition-colors duration-300 ${
+                activeFeature === index ? 'text-gray-300' : 'text-gray-500'
+              }`}>
+                {feature.description}
+              </p>
+              
+              {/* Progress indicator */}
+              {activeFeature === index && isAutoPlaying && (
+                <motion.div
+                  className="mt-3 h-1 bg-gray-800 rounded-full overflow-hidden"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                >
+                  <motion.div
+                    className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full"
+                    initial={{ width: '0%' }}
+                    animate={{ width: '100%' }}
+                    transition={{ duration: 15, ease: 'linear' }}
+                  />
+                </motion.div>
+              )}
+            </motion.button>
+          ))}
+          
+          {/* Auto-play toggle */}
+          <div className="flex items-center justify-center pt-4">
+            <button
+              onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-full text-sm transition-all ${
+                isAutoPlaying 
+                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' 
+                  : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full ${isAutoPlaying ? 'bg-purple-400' : 'bg-gray-500'}`} />
+              <span>{isAutoPlaying ? 'Auto-playing' : 'Paused'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Right side - GIF showcase */}
+        <div className="col-span-2 relative">
+          <div className="relative rounded-3xl p-6 overflow-hidden shadow-2xl shadow-purple-500/20">
+            {/* Cool background shadow effect */}
+            <div className="absolute -inset-4 bg-gradient-to-r from-purple-500/20 via-pink-500/20 to-blue-500/20 rounded-3xl blur-2xl" />
+            <div className="absolute inset-0 bg-gradient-to-br from-gray-900/90 to-gray-800/90 rounded-3xl backdrop-blur-xl" />
+            
+            {/* GIF container */}
+            <div className="relative aspect-video bg-gray-950/50 rounded-2xl overflow-hidden">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeFeature}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.05 }}
+                  transition={{ duration: 0.5, ease: 'easeInOut' }}
+                  className="w-full h-full flex items-center justify-center"
+                >
+                  {/* Placeholder for now - you'll replace with actual GIFs */}
+                  <div className="text-center">
+                    <div className="w-24 h-24 bg-gradient-to-br from-purple-500 to-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <span className="text-3xl">🎬</span>
+                    </div>
+                    <h4 className="text-xl font-semibold text-white mb-2">
+                      {featureDisplays[activeFeature].title}
+                    </h4>
+                    <p className="text-gray-400 text-sm">
+                      GIF placeholder: {featureDisplays[activeFeature].gifSrc}
+                    </p>
+                  </div>
+                  
+                  {/* Uncomment this when you add actual GIFs */}
+                  {/*
+                  <img
+                    src={featureDisplays[activeFeature].gifSrc}
+                    alt={featureDisplays[activeFeature].gifAlt}
+                    className="w-full h-full object-cover"
+                  />
+                  */}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 function LandingPage() {
   const navigate = useNavigate();
@@ -102,35 +289,6 @@ function LandingPage() {
             </motion.button>
           </motion.div>
 
-          {/* Feature highlights */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto"
-          >
-            {[
-              { icon: "🎯", label: "Stay Focused", desc: "What needs attention next" },
-              { icon: "📊", label: "Track Progress", desc: "Visual completion status" },
-              { icon: "⏰", label: "Smart Timing", desc: "Delay until tomorrow" },
-              { icon: "🤖", label: "AI Reviews", desc: "Intelligent suggestions" }
-            ].map((feature, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.4 + index * 0.1 }}
-                className="relative group"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-xl blur-xl group-hover:blur-2xl transition-all" />
-                <div className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-4 hover:bg-white/10 transition-all text-center">
-                  <div className="text-2xl mb-2">{feature.icon}</div>
-                  <div className="font-semibold text-white text-sm">{feature.label}</div>
-                  <div className="text-xs text-gray-400">{feature.desc}</div>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
         </div>
       </section>
 
@@ -244,6 +402,160 @@ function LandingPage() {
                 ))}
               </div>
             </div>
+          </div>
+          
+          {/* Feature Demo Section */}
+          <div className="mt-20">
+            <FeatureDisplaySection />
+          </div>
+
+          {/* Roadmap Section */}
+          <div className="mt-20">
+            <div className="text-center mb-16">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/20 backdrop-blur-xl rounded-full mb-4"
+              >
+                <Calendar className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-medium text-blue-400">What's Coming Next</span>
+              </motion.div>
+              <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
+                Product Roadmap
+              </h2>
+              <p className="text-xl text-gray-400 max-w-3xl mx-auto">
+                We're constantly shipping new features to make your code review experience even better
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-8">
+              {/* Shipped */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="relative"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-2xl blur-xl" />
+                <div className="relative bg-gray-900/80 backdrop-blur border border-green-500/30 rounded-2xl p-6">
+                  <div className="flex items-center space-x-2 mb-6">
+                    <CheckCircle className="w-5 h-5 text-green-400" />
+                    <span className="text-green-400 font-semibold">Shipped</span>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {[
+                      "Smart PR Dashboard",
+                      "Spicy Priority System",
+                      "AI-Powered Reviews",
+                      "Real-time Collaboration",
+                      "GitHub Integration",
+                      "Progress Tracking"
+                    ].map((feature, index) => (
+                      <div key={index} className="flex items-center space-x-3">
+                        <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
+                        <span className="text-gray-300">{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* In Progress */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="relative"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-2xl blur-xl" />
+                <div className="relative bg-gray-900/80 backdrop-blur border border-yellow-500/30 rounded-2xl p-6">
+                  <div className="flex items-center space-x-2 mb-6">
+                    <Clock className="w-5 h-5 text-yellow-400" />
+                    <span className="text-yellow-400 font-semibold">In Progress</span>
+                    <span className="text-xs bg-yellow-400/20 text-yellow-300 px-2 py-1 rounded-full">Q1 2025</span>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {[
+                      "Advanced Analytics",
+                      "Custom Workflows",
+                      "Team Performance Metrics",
+                      "Slack/Discord Integration",
+                      "Mobile App",
+                      "API Rate Optimization"
+                    ].map((feature, index) => (
+                      <div key={index} className="flex items-center space-x-3">
+                        <Clock className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                        <span className="text-gray-300">{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Planned */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="relative"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-2xl blur-xl" />
+                <div className="relative bg-gray-900/80 backdrop-blur border border-blue-500/30 rounded-2xl p-6">
+                  <div className="flex items-center space-x-2 mb-6">
+                    <Calendar className="w-5 h-5 text-blue-400" />
+                    <span className="text-blue-400 font-semibold">Planned</span>
+                    <span className="text-xs bg-blue-400/20 text-blue-300 px-2 py-1 rounded-full">Q2 2025</span>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {[
+                      { text: "SOC2 Compliance", highlight: true },
+                      "Enterprise SSO",
+                      "Advanced Security Features",
+                      "Multi-Repository Views",
+                      "GitLab Integration",
+                      "Custom AI Models"
+                    ].map((feature, index) => (
+                      <div key={index} className="flex items-center space-x-3">
+                        <Calendar className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                        <span className={`${typeof feature === 'object' && feature.highlight ? 'text-white font-medium' : 'text-gray-300'}`}>
+                          {typeof feature === 'object' ? feature.text : feature}
+                        </span>
+                        {typeof feature === 'object' && feature.highlight && (
+                          <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full flex items-center space-x-1">
+                            <Shield className="w-3 h-3" />
+                            <span>Enterprise</span>
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Roadmap CTA */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+              className="mt-12 text-center"
+            >
+              <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/50 border border-gray-700 rounded-xl p-6 max-w-2xl mx-auto">
+                <h3 className="text-xl font-bold text-white mb-2">
+                  Have a Feature Request?
+                </h3>
+                <p className="text-gray-400 mb-4">
+                  We'd love to hear what would make Reviewly even better for your team
+                </p>
+                <button className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
+                  <span>Submit Feedback</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
           </div>
           
           {/* CTA Section */}
