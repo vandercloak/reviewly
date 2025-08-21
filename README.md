@@ -2,6 +2,21 @@
 
 Reviewly is a modern, AI-enhanced GitHub pull request review dashboard that transforms the code review experience. Built with React, TypeScript, and Tailwind CSS, it provides an intuitive interface for managing and reviewing pull requests with intelligent AI assistance powered by Claude (Anthropic).
 
+## Homepage
+
+<img width="923" height="676" alt="image" src="https://github.com/user-attachments/assets/0255eeb8-a24c-4fa3-8689-a94e0f18984b" />
+
+## A Dashboard to keep you focused
+
+<img width="1407" height="802" alt="image" src="https://github.com/user-attachments/assets/662d012b-639c-4899-8453-ffca3ebe9f76" />
+
+## PR + Edit w/ AI and never lose site of the ball
+
+<img width="1408" height="548" alt="image" src="https://github.com/user-attachments/assets/a6e5c853-7967-4f88-bd30-695efb799d9d" />
+
+
+
+
 ## 🚀 Features
 
 ### Smart Review Dashboard
