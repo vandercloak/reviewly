@@ -300,6 +300,41 @@ function LandingPage() {
         className="relative py-20 px-6"
       >
         <div className="max-w-6xl mx-auto">
+          {/* Stats Section */}
+          <div className="relative mb-20">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-3xl blur-3xl" />
+            <div className="relative bg-gray-900/50 backdrop-blur border border-white/10 rounded-3xl p-8 overflow-hidden">
+              <div className="text-center mb-8">
+                <h3 className="text-2xl font-bold text-white mb-4">Proven Results from Real Teams</h3>
+                <p className="text-gray-400 max-w-2xl mx-auto">
+                  Join hundreds of engineering teams who've transformed their review process with Reviewly
+                </p>
+              </div>
+              
+              {/* Impact Stats Grid */}
+              <div className="grid grid-cols-4 gap-6">
+                {[
+                  { value: "2hrs", label: "Average Time Saved Per Week", icon: "⏰" },
+                  { value: "87%", label: "Fewer Bugs in Production", icon: "🛡️" },
+                  { value: "3.5x", label: "Faster Review Turnaround", icon: "⚡" },
+                  { value: "92%", label: "Developer Satisfaction", icon: "😊" }
+                ].map((stat, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.8 + index * 0.1 }}
+                    className="text-center"
+                  >
+                    <div className="text-3xl mb-2">{stat.icon}</div>
+                    <div className="text-3xl font-bold text-white mb-2">{stat.value}</div>
+                    <div className="text-sm text-gray-400">{stat.label}</div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div className="text-center mb-16">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
@@ -369,40 +404,6 @@ function LandingPage() {
             ))}
           </div>
 
-          {/* Stats Section */}
-          <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-3xl blur-3xl" />
-            <div className="relative bg-gray-900/50 backdrop-blur border border-white/10 rounded-3xl p-8 overflow-hidden">
-              <div className="text-center mb-8">
-                <h3 className="text-2xl font-bold text-white mb-4">Proven Results from Real Teams</h3>
-                <p className="text-gray-400 max-w-2xl mx-auto">
-                  Join hundreds of engineering teams who've transformed their review process with Reviewly
-                </p>
-              </div>
-              
-              {/* Impact Stats Grid */}
-              <div className="grid grid-cols-4 gap-6">
-                {[
-                  { value: "2hrs", label: "Average Time Saved Per Week", icon: "⏰" },
-                  { value: "87%", label: "Fewer Bugs in Production", icon: "🛡️" },
-                  { value: "3.5x", label: "Faster Review Turnaround", icon: "⚡" },
-                  { value: "92%", label: "Developer Satisfaction", icon: "😊" }
-                ].map((stat, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 1 + index * 0.1 }}
-                    className="text-center"
-                  >
-                    <div className="text-3xl mb-2">{stat.icon}</div>
-                    <div className="text-3xl font-bold text-white mb-2">{stat.value}</div>
-                    <div className="text-sm text-gray-400">{stat.label}</div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </div>
           
           {/* Feature Demo Section */}
           <div className="mt-20">
