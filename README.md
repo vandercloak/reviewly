@@ -45,6 +45,11 @@ Reviewly is a modern, AI-enhanced GitHub pull request review dashboard that tran
 - **Real-time Sync**: Live pull request updates and repository management
 - **Direct GitHub Links**: Quick access to original PRs and seamless workflow integration
 
+## Security
+- This is just a POC.
+- Everything currently saves in localStorage. There is no remote saving of api tokens.
+- Changes to state are superficial and will reset on refresh.
+
 ## 🛠 Tech Stack
 
 - **Frontend**: React 19.1.1 + TypeScript
