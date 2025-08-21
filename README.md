@@ -17,9 +17,7 @@ Reviewly is a modern, AI-enhanced GitHub pull request review dashboard that tran
 
 ### PR + Edit w/ AI and never lose site of the ball
 
-<img width="1408" height="548" alt="image" src="https://github.com/user-attachments/assets/a6e5c853-7967-4f88-bd30-695efb799d9d" />
-
-
+<img width="1414" height="786" alt="image" src="https://github.com/user-attachments/assets/115f3171-abe1-42d2-8f6a-47fb252cbe05" />
 
 
 ## 🚀 Features
