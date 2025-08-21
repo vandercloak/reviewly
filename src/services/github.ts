@@ -139,133 +139,81 @@ class GitHubService {
     return pullRequests;
   }
 
-  async getAllPullRequestsAwaitingReview(): Promise<GitHubPullRequest[]> {
+  async getAllPullRequestsAwaitingReview(onUpdate?: (prs: GitHubPullRequest[]) => void): Promise<GitHubPullRequest[]> {
     this.ensureInitialized();
     
-    // Check cache first and return immediately if available
     const cacheKey = 'all_prs_awaiting_review';
     const cached = repoCacheService.getCachedPullRequests('_all_', cacheKey);
     
-    // If we have cached data less than 10 minutes old, return it immediately
-    // Then fetch fresh data in the background only if cache is older than 2 minutes
+    // Eager loading: Always return cached data immediately if available
     if (cached && cached.data.length > 0) {
       const cacheAge = Date.now() - (cached.timestamp || 0);
-      const tenMinutes = 10 * 60 * 1000;
-      const twoMinutes = 2 * 60 * 1000;
+      const fiveMinutes = 5 * 60 * 1000;
       
-      // Always return cached data if it's less than 10 minutes old
-      if (cacheAge < tenMinutes) {
-        // Only fetch fresh data in background if cache is older than 2 minutes
-        if (cacheAge > twoMinutes) {
-          this.fetchAndUpdatePRsInBackground(cacheKey).catch(error => {
-            console.warn('Background PR update failed:', error);
-          });
-        }
-        return cached.data;
+      // Start background refresh if cache is older than 5 minutes
+      if (cacheAge > fiveMinutes && onUpdate) {
+        console.log('🔄 Showing cached data, fetching fresh PRs in background...');
+        this.fetchAndUpdatePRsInBackground(cacheKey, onUpdate).catch(error => {
+          console.warn('Background PR update failed:', error);
+        });
       }
+      
+      return cached.data;
     }
     
-    // No cache or cache too old, fetch fresh data
+    // No cache available, fetch fresh data
+    console.log('📥 No cached data, fetching fresh PRs...');
     return this.fetchFreshPRsAwaitingReview(cacheKey);
   }
 
   private async fetchFreshPRsAwaitingReview(cacheKey: string): Promise<GitHubPullRequest[]> {
     try {
-      console.log('Fetching PRs awaiting review...');
+      console.log('🔍 Fetching PRs awaiting review...');
       
       // Get current user first to handle any auth issues early
       const user = await this.getCurrentUser();
-      console.log(`Authenticated as: ${user.login}`);
+      console.log(`✅ Authenticated as: ${user.login}`);
       
-      let reviewRequests: any = { items: [] };
+      let allPRs: any[] = [];
       
       // Try to get PRs where the current user is requested as a reviewer
       try {
-        // Add a small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
         const response = await this.octokit!.rest.search.issuesAndPullRequests({
           q: `type:pr state:open review-requested:@me`,
           sort: 'updated',
           order: 'desc',
-          per_page: 30, // Reduced from 100 to avoid rate limits
+          per_page: 50,
         });
-        reviewRequests = response.data;
-        console.log(`Found ${reviewRequests.items.length} PRs with review requests`);
+        allPRs.push(...response.data.items);
+        console.log(`📋 Found ${response.data.items.length} PRs with review requests`);
       } catch (searchError: any) {
-        console.warn('Failed to search for review requests:', searchError.message);
+        console.warn('❌ Failed to search for review requests:', searchError.message);
         
-        // Handle rate limiting specifically
         if (searchError.status === 403 && searchError.message.includes('rate limit')) {
-          console.log('Rate limited, will use cached data or minimal repo approach');
           throw new Error('GitHub rate limit exceeded. Please wait a few minutes before trying again.');
-        } else if (searchError.status === 403) {
-          console.log('Search API unavailable (403), falling back to repository-based approach');
-        } else {
-          console.log('Search failed, falling back to repository-based approach');
         }
       }
       
-      // If no review requests found, get PRs from user's repos
-      if (reviewRequests.items.length === 0) {
-        console.log('No review requests found, fetching from user repos...');
-        
-        // Get user's repos first (reduced number)
-        const repos = await this.getRepositories(1, 10);
-        const pullRequests: GitHubPullRequest[] = [];
-        
-        // Get open PRs from each repo (reduced and with delays)
-        for (const repo of repos.slice(0, 3)) { // Limit to first 3 repos to reduce API calls
-          try {
-            // Add delay between repo requests
-            await new Promise(resolve => setTimeout(resolve, 200));
-            const prs = await this.getPullRequests(repo.owner.login, repo.name, 'open');
-            pullRequests.push(...prs);
-          } catch (error: any) {
-            console.warn(`Failed to fetch PRs from ${repo.full_name}:`, error);
-            // If we hit rate limits, stop trying more repos
-            if (error.status === 403) {
-              console.log('Rate limited while fetching repo PRs, stopping');
-              break;
-            }
-          }
-        }
-        
-        console.log(`Found ${pullRequests.length} total PRs from user repos`);
-        
-        // Cache and return
-        repoCacheService.cachePullRequests('_all_', cacheKey, pullRequests);
-        return pullRequests;
-      }
-      
-      // Get all PRs authored by others that might need review (skip if we already have review requests)
-      let otherPRs: any = { items: [] };
-      if (reviewRequests.items.length < 10) { // Only fetch if we don't have many review requests
+      // Get additional PRs involving the user (if we don't have many yet)
+      if (allPRs.length < 20) {
         try {
-          // Add delay before second search
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 200)); // Rate limit protection
           
           const response = await this.octokit!.rest.search.issuesAndPullRequests({
             q: `type:pr state:open -author:${user.login} involves:${user.login}`,
             sort: 'updated',
             order: 'desc',
-            per_page: 20, // Reduced from 50
+            per_page: 30,
           });
-          otherPRs = response.data;
-          console.log(`Found ${otherPRs.items.length} PRs involving user`);
+          allPRs.push(...response.data.items);
+          console.log(`📋 Found ${response.data.items.length} additional PRs involving user`);
         } catch (searchError: any) {
-          console.warn('Failed to search for PRs involving user:', searchError.message);
-          // Don't throw here, just continue with what we have
-          if (searchError.status === 403 && searchError.message.includes('rate limit')) {
-            console.log('Rate limited on second search, continuing with existing results');
-          }
+          console.warn('⚠️ Failed to search for additional PRs:', searchError.message);
+          // Don't throw here, continue with what we have
         }
-      } else {
-        console.log('Skipping second search since we have enough review requests');
       }
 
-      // Combine and deduplicate
-      const allPRs = [...reviewRequests.items, ...otherPRs.items];
+      // Deduplicate PRs by ID
       const uniquePRs = allPRs.reduce((acc, pr) => {
         if (!acc.find(existing => existing.id === pr.id)) {
           acc.push(pr);
@@ -273,31 +221,126 @@ class GitHubService {
         return acc;
       }, [] as any[]);
 
-      // Convert to our format and fetch additional PR details
-      const pullRequests: GitHubPullRequest[] = [];
-      
-      for (const pr of uniquePRs.slice(0, 50)) { // Limit to 50 for performance
-        try {
-          const [owner, repo] = pr.repository_url.split('/').slice(-2);
-          const { data: fullPR } = await this.octokit!.rest.pulls.get({
-            owner,
-            repo,
-            pull_number: pr.number,
-          });
-          pullRequests.push(fullPR as GitHubPullRequest);
-        } catch (error) {
-          console.warn(`Failed to fetch PR details for ${pr.number}:`, error);
+      // ✨ OPTIMIZATION: Use search results directly instead of individual API calls
+      const pullRequests: GitHubPullRequest[] = uniquePRs.slice(0, 50).map(pr => {
+        // Debug: log the search result structure to understand what we have
+        console.log('🔍 Search result structure for PR #' + pr.number + ':', {
+          repository: pr.repository,
+          repository_url: pr.repository_url,
+          html_url: pr.html_url,
+          url: pr.url
+        });
+        
+        // Extract repo info from URL if repository object is incomplete
+        let repoOwner = 'unknown', repoName = 'unknown';
+        
+        // Try multiple sources to get repo info
+        if (pr.repository?.full_name) {
+          console.log(`📝 Using repository.full_name: ${pr.repository.full_name}`);
+          [repoOwner, repoName] = pr.repository.full_name.split('/');
+        } else if (pr.repository_url) {
+          console.log(`📝 Using repository_url: ${pr.repository_url}`);
+          // repository_url format: https://api.github.com/repos/owner/repo
+          const urlParts = pr.repository_url.split('/');
+          repoOwner = urlParts[urlParts.length - 2];
+          repoName = urlParts[urlParts.length - 1];
+        } else if (pr.html_url) {
+          console.log(`📝 Using html_url: ${pr.html_url}`);
+          // html_url format: https://github.com/owner/repo/pull/123
+          const urlParts = pr.html_url.split('/');
+          repoOwner = urlParts[3];
+          repoName = urlParts[4];
+        } else if (pr.url) {
+          console.log(`📝 Using url: ${pr.url}`);
+          // url format: https://api.github.com/repos/owner/repo/pulls/123
+          const urlParts = pr.url.split('/');
+          const repoIndex = urlParts.indexOf('repos');
+          if (repoIndex !== -1 && urlParts.length > repoIndex + 2) {
+            repoOwner = urlParts[repoIndex + 1];
+            repoName = urlParts[repoIndex + 2];
+          }
+        } else {
+          console.log(`📝 Using fallback from repository object or user`);
+          repoOwner = pr.repository?.owner?.login || pr.user?.login || 'unknown';
+          repoName = pr.repository?.name || 'unknown';
         }
-      }
+        
+        // Validate the extracted values
+        if (!repoOwner || repoOwner === '') repoOwner = 'unknown';
+        if (!repoName || repoName === '') repoName = 'unknown';
+        
+        console.log(`📝 Extracted repo info for PR #${pr.number}: ${repoOwner}/${repoName}`);
+        
+        // Map search result to our PR format - the search API provides most of what we need
+        return {
+          id: pr.id,
+          number: pr.number,
+          title: pr.title,
+          body: pr.body,
+          state: pr.state,
+          draft: pr.draft || false,
+          html_url: pr.html_url,
+          created_at: pr.created_at,
+          updated_at: pr.updated_at,
+          closed_at: pr.closed_at,
+          merged_at: pr.merged_at,
+          user: pr.user,
+          assignees: pr.assignees || [],
+          requested_reviewers: pr.requested_reviewers || [],
+          requested_teams: pr.requested_teams || [],
+          labels: pr.labels || [],
+          head: {
+            ref: pr.head?.ref || 'unknown',
+            sha: pr.head?.sha || '',
+            repo: pr.head?.repo || {
+              ...pr.repository,
+              owner: pr.repository?.owner || { login: repoOwner },
+              login: repoOwner,
+              name: repoName,
+              full_name: `${repoOwner}/${repoName}`
+            }
+          },
+          base: {
+            ref: pr.base?.ref || pr.repository?.default_branch || 'main',
+            sha: pr.base?.sha || '',
+            repo: {
+              ...pr.repository,
+              owner: pr.repository?.owner || { login: repoOwner },
+              login: repoOwner,
+              name: repoName,
+              full_name: `${repoOwner}/${repoName}`
+            }
+          },
+          // Provide reasonable defaults for fields not in search results
+          additions: 0, // Will be updated if/when we fetch full details
+          deletions: 0,
+          changed_files: 0,
+          commits: 1,
+          comments: pr.comments || 0,
+          review_comments: pr.comments || 0,
+          maintainer_can_modify: false,
+          rebaseable: null,
+          mergeable: null,
+          mergeable_state: 'unknown',
+          merged: pr.state === 'closed' && pr.merged_at !== null,
+          merge_commit_sha: null,
+          merged_by: null,
+          milestone: pr.milestone || null,
+          locked: pr.locked || false,
+          active_lock_reason: null,
+          auto_merge: null
+        } as GitHubPullRequest;
+      });
+
+      console.log(`✅ Processed ${pullRequests.length} PRs without individual API calls`);
 
       // Cache the results
       repoCacheService.cachePullRequests('_all_', cacheKey, pullRequests);
       
       return pullRequests;
     } catch (error: any) {
-      console.error('Failed to fetch PRs awaiting review:', error);
+      console.error('❌ Failed to fetch PRs awaiting review:', error);
       
-      // Provide more specific error messages
       if (error.status === 401) {
         throw new Error('GitHub authentication failed. Please check your access token.');
       } else if (error.status === 403) {
@@ -310,15 +353,16 @@ class GitHubService {
     }
   }
 
-  private async fetchAndUpdatePRsInBackground(cacheKey: string): Promise<void> {
+  private async fetchAndUpdatePRsInBackground(cacheKey: string, onUpdate: (prs: GitHubPullRequest[]) => void): Promise<void> {
     try {
+      console.log('🔄 Background refresh starting...');
       const freshPRs = await this.fetchFreshPRsAwaitingReview(cacheKey);
       
-      // Optionally trigger a UI update if you have a way to notify the UI
-      // For now, the cache is updated and will be used on next load
-      console.log(`Background update: fetched ${freshPRs.length} PRs`);
+      // Immediately update the UI with fresh data
+      onUpdate(freshPRs);
+      console.log(`✅ Background update complete: ${freshPRs.length} PRs`);
     } catch (error) {
-      console.error('Background PR fetch failed:', error);
+      console.error('❌ Background PR fetch failed:', error);
     }
   }
 
@@ -332,14 +376,63 @@ class GitHubService {
     return response.data as GitHubPullRequest;
   }
 
+  // Enrich a PR from search results with full details (for file stats, etc.)
+  async enrichPullRequest(pr: GitHubPullRequest): Promise<GitHubPullRequest> {
+    this.ensureInitialized();
+    
+    try {
+      // Get full PR details to get accurate file stats
+      const fullPR = await this.getPullRequest(
+        pr.base.repo.owner.login,
+        pr.base.repo.name,
+        pr.number
+      );
+      
+      // Merge the full details with our existing PR data
+      return {
+        ...pr,
+        additions: fullPR.additions,
+        deletions: fullPR.deletions,
+        changed_files: fullPR.changed_files,
+        commits: fullPR.commits,
+        mergeable: fullPR.mergeable,
+        mergeable_state: fullPR.mergeable_state,
+        rebaseable: fullPR.rebaseable,
+        head: {
+          ...pr.head,
+          repo: fullPR.head.repo
+        },
+        base: {
+          ...pr.base,
+          repo: fullPR.base.repo
+        }
+      };
+    } catch (error) {
+      console.warn('Failed to enrich PR details:', error);
+      return pr; // Return original if enrichment fails
+    }
+  }
+
   async getPullRequestFiles(owner: string, repo: string, pullNumber: number): Promise<GitHubFile[]> {
     this.ensureInitialized();
-    const response = await this.octokit!.rest.pulls.listFiles({
-      owner,
-      repo,
-      pull_number: pullNumber,
-    });
-    return response.data as GitHubFile[];
+    try {
+      console.log(`🔍 GitHub API: Fetching files for ${owner}/${repo}#${pullNumber}`);
+      const response = await this.octokit!.rest.pulls.listFiles({
+        owner,
+        repo,
+        pull_number: pullNumber,
+      });
+      console.log(`📁 GitHub API: Found ${response.data.length} files for PR #${pullNumber}`);
+      return response.data as GitHubFile[];
+    } catch (error: any) {
+      console.error(`❌ GitHub API: Failed to fetch files for ${owner}/${repo}#${pullNumber}:`, error);
+      if (error.status === 404) {
+        console.warn('PR or repository not found - might be private or deleted');
+      } else if (error.status === 403) {
+        console.warn('Access denied - check GitHub token permissions');
+      }
+      throw error;
+    }
   }
 
   async getFileContent(owner: string, repo: string, path: string, ref?: string): Promise<string> {

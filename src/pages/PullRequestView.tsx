@@ -92,12 +92,40 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
   const loadPullRequestData = async () => {
     setIsLoadingFiles(true);
     try {
+      // First, enrich the PR with full details if needed
+      let enrichedPR = pullRequest;
+      if (!pullRequest.head.repo?.owner?.login || pullRequest.additions === 0) {
+        console.log('🔄 Enriching PR with full details...');
+        enrichedPR = await githubService.enrichPullRequest(pullRequest);
+        console.log('✅ PR enriched:', {
+          owner: enrichedPR.base.repo?.owner?.login,
+          repo: enrichedPR.base.repo?.name,
+          additions: enrichedPR.additions,
+          changed_files: enrichedPR.changed_files
+        });
+      }
+
       // Get PR files
+      console.log('🔍 Fetching files for PR:', {
+        owner: enrichedPR.base.repo.owner.login,
+        repo: enrichedPR.base.repo.name,
+        number: enrichedPR.number,
+        changed_files: enrichedPR.changed_files,
+        additions: enrichedPR.additions,
+        deletions: enrichedPR.deletions
+      });
+      
       const prFiles = await githubService.getPullRequestFiles(
-        pullRequest.head.repo.owner.login,
-        pullRequest.head.repo.name,
-        pullRequest.number
+        enrichedPR.base.repo.owner.login,
+        enrichedPR.base.repo.name,
+        enrichedPR.number
       );
+      
+      console.log('📁 Received files:', {
+        count: prFiles.length,
+        files: prFiles.map(f => ({ name: f.filename, status: f.status, changes: f.changes }))
+      });
+      
       setFiles(prFiles);
 
       // Load file contents for diff viewing
@@ -109,10 +137,10 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
           let originalContent = '';
           if (file.status !== 'added') {
             originalContent = await githubService.getFileContent(
-              pullRequest.base.repo.owner.login,
-              pullRequest.base.repo.name,
+              enrichedPR.base.repo.owner.login,
+              enrichedPR.base.repo.name,
               file.filename,
-              pullRequest.base.sha
+              enrichedPR.base.sha
             );
           }
 
@@ -120,10 +148,10 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
           let modifiedContent = '';
           if (file.status !== 'removed') {
             modifiedContent = await githubService.getFileContent(
-              pullRequest.head.repo.owner.login,
-              pullRequest.head.repo.name,
+              enrichedPR.head.repo.owner.login,
+              enrichedPR.head.repo.name,
               file.filename,
-              pullRequest.head.sha
+              enrichedPR.head.sha
             );
           }
 
@@ -141,8 +169,12 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
       }
 
       setFileContents(contents);
+      console.log(`✅ Loaded ${prFiles.length} files for PR #${enrichedPR.number}`);
     } catch (error) {
-      console.error('Failed to load PR data:', error);
+      console.error('❌ Failed to load pull request data:', error);
+      // Set empty state so UI doesn't show stale loading state
+      setFiles([]);
+      setFileContents({});
     } finally {
       setIsLoadingFiles(false);
     }
@@ -322,30 +354,6 @@ export const PullRequestView: React.FC<PullRequestViewProps> = ({
                 {pullRequest.title}
               </span>
               <span className="text-gray-400">#{pullRequest.number}</span>
-              <span className={`px-2 py-1 rounded text-xs ${
-                pullRequest.state === 'open' ? 'bg-green-500/20 text-green-400' :
-                pullRequest.state === 'closed' ? 'bg-red-500/20 text-red-400' :
-                'bg-purple-500/20 text-purple-400'
-              }`}>
-                {pullRequest.state}
-              </span>
-
-              {/* Status Badges */}
-              {isSpicy && (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-300 border border-red-500/30">
-                  🔥 Spicy
-                </span>
-              )}
-              {isDelayed && (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  😴 Delayed
-                </span>
-              )}
-              {isCompleted && (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-300 border border-green-500/30">
-                  ✅ Done
-                </span>
-              )}
               
               <a
                 href={pullRequest.html_url}

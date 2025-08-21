@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, startTransition, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   GitPullRequest,
@@ -42,6 +42,8 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
   const [sortBy, setSortBy] = useState<"updated" | "created" | "priority">(
     "priority"
   );
+  const [itemsToShow, setItemsToShow] = useState(10); // Start with 10 items
+
   // Initialize state from localStorage
   const [completedReviews, setCompletedReviews] = useState<Set<number>>(
     () => prStatusService.getCompletedPRs()
@@ -228,79 +230,116 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
     prStatusService.setDelayed(prId, false); // Save to localStorage
   };
 
-  const filteredPRs = pullRequests
-    .map((pr) => ({
-      pr,
-      priority: getPriorityLevel(pr),
-      completed: completedReviews.has(pr.id),
-      delayed: delayedReviews.has(pr.id),
-      spicy: spicyReviews.has(pr.id),
-    }))
-    .filter(({ pr, priority, completed, delayed }) => {
-      // Handle special filters
-      if (filter === "delayed") {
-        return delayed;
-      }
-      
-      if (filter === "completed") {
-        return completed;
-      }
-      
-      // Hide delayed PRs from other filters (they'll come back "tomorrow")
-      if (delayed) return false;
-      
-      // Hide completed items unless specifically showing them or using "all" filter
-      if (completed && !showCompleted && filter !== "all") {
-        return false;
-      }
-      
-      // Apply main filter
-      if (filter === "ready") {
-        return !pr.draft && !completed; // Ready for review (not draft, not completed) - includes spicy PRs
-      }
-      
-      if (filter === "spicy") {
-        return spicyReviews.has(pr.id);
-      }
-      
-      return true; // For "all" filter
-    })
-    .sort((a, b) => {
-      // Spicy PRs go to the top (unless completed)
-      if (!a.completed && !b.completed && a.spicy !== b.spicy) {
-        return a.spicy ? -1 : 1;
-      }
-      
-      // Completed items go to bottom
-      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+  // Memoize the expensive filtering and sorting calculation
+  const filteredPRs = useMemo(() => {
+    return pullRequests
+      .map((pr) => ({
+        pr,
+        priority: getPriorityLevel(pr),
+        completed: completedReviews.has(pr.id),
+        delayed: delayedReviews.has(pr.id),
+        spicy: spicyReviews.has(pr.id),
+      }))
+      .filter(({ pr, priority, completed, delayed }) => {
+        // Handle special filters
+        if (filter === "delayed") {
+          return delayed;
+        }
+        
+        if (filter === "completed") {
+          return completed;
+        }
+        
+        // Hide delayed PRs from other filters (they'll come back "tomorrow")
+        if (delayed) return false;
+        
+        // Hide completed items unless specifically showing them or using "all" filter
+        if (completed && !showCompleted && filter !== "all") {
+          return false;
+        }
+        
+        // Apply main filter
+        if (filter === "ready") {
+          return !pr.draft && !completed; // Ready for review (not draft, not completed) - includes spicy PRs
+        }
+        
+        if (filter === "spicy") {
+          return spicyReviews.has(pr.id);
+        }
+        
+        return true; // For "all" filter
+      })
+      .sort((a, b) => {
+        // Spicy PRs go to the top (unless completed)
+        if (!a.completed && !b.completed && a.spicy !== b.spicy) {
+          return a.spicy ? -1 : 1;
+        }
+        
+        // Completed items go to bottom
+        if (a.completed !== b.completed) return a.completed ? 1 : -1;
 
-      if (sortBy === "priority") {
-        const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
-        return priorityOrder[a.priority] - priorityOrder[b.priority];
-      }
-      if (sortBy === "created") {
+        if (sortBy === "priority") {
+          const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
+          return priorityOrder[a.priority] - priorityOrder[b.priority];
+        }
+        if (sortBy === "created") {
+          return (
+            new Date(b.pr.created_at).getTime() -
+            new Date(a.pr.created_at).getTime()
+          );
+        }
         return (
-          new Date(b.pr.created_at).getTime() -
-          new Date(a.pr.created_at).getTime()
+          new Date(b.pr.updated_at).getTime() -
+          new Date(a.pr.updated_at).getTime()
         );
+      });
+  }, [pullRequests, filter, sortBy, completedReviews, delayedReviews, spicyReviews, showCompleted]);
+
+  // Reset pagination when filter changes
+  useEffect(() => {
+    setItemsToShow(10);
+  }, [filter]);
+
+  // Infinite scroll handler
+  useEffect(() => {
+    const handleScroll = () => {
+      if (
+        window.innerHeight + document.documentElement.scrollTop >=
+        document.documentElement.offsetHeight - 1000 // Load when 1000px from bottom
+      ) {
+        if (filteredPRs.length > itemsToShow) {
+          setItemsToShow(prev => Math.min(prev + 10, filteredPRs.length));
+        }
       }
-      return (
-        new Date(b.pr.updated_at).getTime() -
-        new Date(a.pr.updated_at).getTime()
-      );
-    });
+    };
 
-  const completedCount = completedReviews.size;
-  const totalCount = pullRequests.length;
-  const spicyCount = spicyReviews.size;
-  const progressPercentage =
-    totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [filteredPRs.length, itemsToShow]);
 
-  const priorityCounts = pullRequests.reduce((acc, pr) => {
-    const priority = getPriorityLevel(pr);
-    acc[priority] = (acc[priority] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  // Memoize expensive calculations
+  const stats = useMemo(() => {
+    const completedCount = completedReviews.size;
+    const totalCount = pullRequests.length;
+    const spicyCount = spicyReviews.size;
+    const progressPercentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
+    const priorityCounts = pullRequests.reduce((acc, pr) => {
+      const priority = getPriorityLevel(pr);
+      acc[priority] = (acc[priority] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      completedCount,
+      totalCount,
+      spicyCount,
+      progressPercentage,
+      priorityCounts
+    };
+  }, [pullRequests, completedReviews, spicyReviews]);
+
+  const { completedCount, totalCount, spicyCount, progressPercentage, priorityCounts } = stats;
 
   if (isLoading && pullRequests.length === 0) {
     return (
@@ -399,7 +438,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                   <Trophy className="w-6 h-6 text-yellow-400" />
                 </motion.div>
                 <span className="text-xl font-bold text-white">
-                  {completedCount} PR{completedCount !== 1 ? "s" : ""} Completed
+                  🚀 Daily Domination - {completedCount} PR{completedCount !== 1 ? "s" : ""} Completed
                 </span>
                 <motion.div
                   animate={{ rotate: [0, -10, 10, 0] }}
@@ -423,6 +462,26 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                   ? "Absolutely slaying these reviews! ⚡"
                   : "You're a reviewing machine! 🤖⚡"}
               </p>
+              
+              {/* Progress Bar in Daily Domination */}
+              {totalCount > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-400">Progress</span>
+                    <span className="text-sm text-gray-400">
+                      {completedCount} / {totalCount}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+                    <motion.div
+                      className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progressPercentage}%` }}
+                      transition={{ duration: 0.8, ease: "easeOut" }}
+                    />
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         </motion.div>
@@ -432,164 +491,49 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
       <div className="max-w-4xl mx-auto w-full">
         <div className="p-6 border-b border-gray-800">
           {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-white mb-2 flex items-center space-x-3">
-                <span>Review Dashboard</span>
-                {isLoading && pullRequests.length > 0 && (
-                  <motion.span
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-sm font-normal text-blue-400 flex items-center space-x-2"
-                  >
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                      className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full"
-                    />
-                    <span>Refreshing...</span>
-                  </motion.span>
-                )}
-              </h1>
-              <p className="text-gray-400">
-                {totalCount === 0 
-                  ? "The review queue is as empty as a coffee shop at 3am ☕"
-                  : completedCount === 0
-                  ? `${totalCount} PRs ready for your magic touch! ✨`
-                  : `${completedCount} of ${totalCount} reviews absolutely demolished! 💥`}
-              </p>
-            </div>
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-3xl font-bold text-white mb-2 flex items-center space-x-3">
+                  <span>Review Dashboard</span>
+                  {isLoading && pullRequests.length > 0 && (
+                    <motion.span
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-sm font-normal text-blue-400 flex items-center space-x-2"
+                    >
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full"
+                      />
+                      <span>Refreshing...</span>
+                    </motion.span>
+                  )}
+                </h1>
+                <p className="text-gray-400">
+                  {totalCount === 0 
+                    ? "The review queue is as empty as a coffee shop at 3am ☕"
+                    : completedCount === 0
+                    ? `${totalCount} PRs ready for your magic touch! ✨`
+                    : `${completedCount} of ${totalCount} reviews absolutely demolished! 💥`}
+                </p>
+              </div>
 
-            {totalCount > 0 && (
-              <div className="text-right">
-                <div className="text-4xl font-bold text-white mb-1">
-                  {Math.round(progressPercentage)}%
+              {totalCount > 0 && (
+                <div className="text-right">
+                  <div className="text-4xl font-bold text-white mb-1">
+                    {Math.round(progressPercentage)}%
+                  </div>
+                  <div className="text-sm text-gray-400">Complete</div>
                 </div>
-                <div className="text-sm text-gray-400">Complete</div>
-              </div>
-            )}
+              )}
+            </div>
+
           </div>
 
-          {/* Progress Bar */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-400">🚀 Daily Domination</span>
-              <span className="text-sm text-gray-400">
-                {completedCount} / {totalCount}
-              </span>
-            </div>
-            <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${progressPercentage}%` }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-              />
-            </div>
-            {completedCount > 0 && (
-              <div className="flex items-center justify-center mt-2">
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center space-x-2 text-green-400"
-                >
-                  <Trophy className="w-4 h-4" />
-                  <span className="text-sm font-medium">
-                    {progressPercentage === 100
-                      ? "🎉 Total domination! 🎉"
-                      : completedCount === 1
-                      ? "First blood! 🩸"
-                      : completedCount < 3
-                      ? "Getting warmed up! 🔥"
-                      : "Absolutely crushing it! ⚡"}
-                  </span>
-                </motion.div>
-              </div>
-            )}
-          </div>
 
-          {/* Quick Stats */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
-            {[
-              {
-                key: "ready",
-                label: "Ready",
-                count: pullRequests.filter((pr) => !pr.draft && !completedReviews.has(pr.id) && !delayedReviews.has(pr.id)).length,
-                color: "text-blue-400 bg-blue-900/20 border-blue-700/30",
-                icon: <Eye className="w-4 h-4" />,
-              },
-              {
-                key: "spicy",
-                label: "🔥 Spicy",
-                count: spicyCount,
-                color: "text-red-400 bg-red-900/20 border-red-700/30",
-                icon: <Flame className="w-4 h-4" />,
-              },
-              {
-                key: "completed",
-                label: "Completed",
-                count: completedCount,
-                color: "text-green-400 bg-green-900/20 border-green-700/30",
-                icon: <CheckCircle className="w-4 h-4" />,
-              },
-              {
-                key: "delayed",
-                label: "Delayed",
-                count: delayedReviews.size,
-                color: "text-yellow-400 bg-yellow-900/20 border-yellow-700/30",
-                icon: <Moon className="w-4 h-4" />,
-              },
-            ].map(({ key, label, count, color, icon }) => (
-              <motion.div
-                key={key}
-                className={`p-4 rounded-lg border ${color}`}
-                whileHover={{ scale: 1.02 }}
-              >
-                <div className="flex items-center space-x-2 mb-2">
-                  {icon}
-                  <span className="font-medium text-sm">{label}</span>
-                </div>
-                <div className="text-2xl font-bold">{count}</div>
-              </motion.div>
-            ))}
-          </div>
 
-          {/* Delayed tasks section */}
-          {delayedReviews.size > 0 && (
-            <div className="flex items-center justify-between mb-6 p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-              <div className="flex items-center space-x-3">
-                <Moon className="w-4 h-4 text-yellow-400" />
-                <span className="text-sm font-medium text-white">
-                  {delayedReviews.size} Snoozed PR{delayedReviews.size !== 1 ? 's' : ''} 😴
-                </span>
-                <span className="text-xs text-gray-400">(taking a little nap until tomorrow)</span>
-              </div>
-              <button
-                onClick={() => setFilter("delayed")}
-                className="px-3 py-1.5 text-sm text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10 rounded-lg transition-colors font-medium"
-              >
-                View
-              </button>
-            </div>
-          )}
-
-          {/* Show completed toggle */}
-          {completedCount > 0 && (
-            <div className="flex items-center justify-between mb-6 p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-              <div className="flex items-center space-x-3">
-                <CheckCircle className="w-4 h-4 text-green-400" />
-                <span className="text-sm font-medium text-white">
-                  {completedCount} Crushed Review{completedCount !== 1 ? 's' : ''} 💪
-                </span>
-              </div>
-              <button
-                onClick={() => setFilter("completed")}
-                className="px-3 py-1.5 text-sm text-blue-400 hover:text-blue-300 hover:bg-blue-400/10 rounded-lg transition-colors font-medium"
-              >
-                View
-              </button>
-            </div>
-          )}
 
           {/* Back button for special views */}
           {filter === "delayed" && (
@@ -639,30 +583,48 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                     key: "ready",
                     label: "Ready",
                     count: pullRequests.filter((pr) => !pr.draft && !completedReviews.has(pr.id) && !delayedReviews.has(pr.id)).length,
+                    colors: {
+                      active: "bg-blue-500/20 text-blue-300 border-blue-500/50",
+                      inactive: "bg-blue-500/5 text-blue-400 border-blue-500/20 hover:bg-blue-500/10 hover:border-blue-500/30"
+                    }
                   },
                   {
                     key: "spicy",
                     label: "🔥 Spicy",
                     count: spicyCount,
+                    colors: {
+                      active: "bg-red-500/20 text-red-300 border-red-500/50",
+                      inactive: "bg-red-500/5 text-red-400 border-red-500/20 hover:bg-red-500/10 hover:border-red-500/30"
+                    }
                   },
                   {
                     key: "completed",
                     label: "Completed",
                     count: completedCount,
+                    colors: {
+                      active: "bg-green-500/20 text-green-300 border-green-500/50",
+                      inactive: "bg-green-500/5 text-green-400 border-green-500/20 hover:bg-green-500/10 hover:border-green-500/30"
+                    }
                   },
                   {
                     key: "delayed",
                     label: "Delayed",
                     count: delayedReviews.size,
+                    colors: {
+                      active: "bg-yellow-500/20 text-yellow-300 border-yellow-500/50",
+                      inactive: "bg-yellow-500/5 text-yellow-400 border-yellow-500/20 hover:bg-yellow-500/10 hover:border-yellow-500/30"
+                    }
                   },
-                ].map(({ key, label, count }) => (
+                ].map(({ key, label, count, colors }) => (
                   <button
                     key={key}
-                    onClick={() => setFilter(key as any)}
-                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      filter === key
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800"
+                    onClick={() => {
+                      startTransition(() => {
+                        setFilter(key as any);
+                      });
+                    }}
+                    className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border transition-colors ${
+                      filter === key ? colors.active : colors.inactive
                     }`}
                   >
                     {label} {count}
@@ -690,6 +652,23 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
       {/* Pull Request List */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full p-6">
+          {/* Dynamic Section Title */}
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-white">
+              {filter === 'ready' || filter === 'spicy' ? '🎯 What\'s Next:' :
+               filter === 'completed' ? '✅ Completed Reviews:' :
+               filter === 'delayed' ? '😴 Snoozed Reviews:' :
+               '📋 All Reviews:'}
+            </h2>
+            <p className="text-gray-400 text-sm mt-1">
+              {filter === 'ready' ? 'PRs waiting for your review' :
+               filter === 'spicy' ? 'High priority PRs that need immediate attention' :
+               filter === 'completed' ? 'PRs you\'ve finished reviewing' :
+               filter === 'delayed' ? 'PRs you\'ve snoozed until later' :
+               'All pull requests'}
+            </p>
+          </div>
+
           {filteredPRs.length === 0 ? (
             <div className="text-center py-12">
               {pullRequests.length === 0 && !isLoading ? (
@@ -724,13 +703,12 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredPRs.map(({ pr, priority, completed, delayed, spicy }, index) => (
+              {filteredPRs.slice(0, itemsToShow).map(({ pr, priority, completed, delayed, spicy }, index) => (
                 <motion.div
                   key={pr.id}
                   id={`pr-${pr.id}`}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
+                  initial={false}
+                  animate={{ opacity: 1 }}
                   className={`group relative ${completed ? "opacity-60" : ""} ${spicy ? "ring-2 ring-red-500/30 ring-offset-2 ring-offset-black rounded-lg" : ""}`}
                 >
                   {/* Spicy flames animation */}
@@ -1055,6 +1033,21 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                   </div>
                 </motion.div>
               ))}
+              
+              {/* Infinite Scroll Loading Indicator */}
+              {filteredPRs.length > itemsToShow && (
+                <div className="flex justify-center pt-6">
+                  <div className="flex items-center space-x-3 text-gray-400">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="w-4 h-4 border-2 border-gray-600 border-t-blue-500 rounded-full"
+                    />
+                    <span className="text-sm">Loading more PRs...</span>
+                    <span className="text-xs">({filteredPRs.length - itemsToShow} remaining)</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -53,9 +53,84 @@ const Dashboard = ({ pullRequests, onPullRequestSelect, isLoading, rateLimitErro
 
 const PullRequestRoute = () => {
   const params = useParams();
-  const { selectedPullRequest } = useAppStore();
+  const { selectedPullRequest, setSelectedPullRequest } = useAppStore();
   const navigate = useNavigate();
-  
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Extract params
+  const { owner, repo, number } = params;
+
+  // Try to fetch PR if not in store but we have URL params
+  useEffect(() => {
+    if (!selectedPullRequest && owner && repo && number) {
+      fetchPullRequestFromParams();
+    }
+  }, [selectedPullRequest, owner, repo, number]);
+
+  const fetchPullRequestFromParams = async () => {
+    if (!owner || !repo || !number) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log(`🔍 Fetching PR from URL: ${owner}/${repo}#${number}`);
+      const pr = await githubService.getPullRequest(owner, repo, parseInt(number));
+      setSelectedPullRequest(pr);
+      console.log(`✅ Loaded PR from URL: ${pr.title}`);
+    } catch (error: any) {
+      console.error('❌ Failed to fetch PR from URL:', error);
+      setError('Failed to load pull request. It may not exist or you may not have access.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Show loading state while fetching from URL
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"
+          />
+          <h2 className="text-xl font-semibold text-white mb-2">Loading Pull Request</h2>
+          <p className="text-gray-400">Fetching {owner}/{repo}#{number}...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold text-white mb-2">Pull Request Not Found</h2>
+          <p className="text-gray-400 mb-4">{error}</p>
+          <div className="space-x-4">
+            <button 
+              onClick={() => navigate('/app')}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded transition-colors"
+            >
+              Back to Dashboard
+            </button>
+            <button 
+              onClick={fetchPullRequestFromParams}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show not found if no PR and no params
   if (!selectedPullRequest) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -184,7 +259,14 @@ export const ReviewlyApp: React.FC = () => {
   const loadAllPullRequests = async () => {
     try {
       setRateLimitError(null); // Clear any previous rate limit errors
-      const prs = await githubService.getAllPullRequestsAwaitingReview();
+      
+      // 🚀 Eager loading: Pass callback to handle real-time updates
+      const prs = await githubService.getAllPullRequestsAwaitingReview((freshPRs) => {
+        console.log('🔄 Received fresh PR data, updating UI...');
+        setAllPullRequests(freshPRs);
+      });
+      
+      // Set initial data (either cached or fresh)
       setAllPullRequests(prs);
     } catch (error: any) {
       console.error('Failed to load pull requests awaiting review:', error);
@@ -201,9 +283,30 @@ export const ReviewlyApp: React.FC = () => {
   };
 
   const handlePullRequestSelect = (pr: GitHubPullRequest) => {
+    console.log('🔍 Selected PR data:', {
+      number: pr.number,
+      title: pr.title,
+      base: pr.base,
+      repo_name: pr.base?.repo?.name,
+      repo_full_name: pr.base?.repo?.full_name,
+      owner: pr.base?.repo?.owner?.login
+    });
+    
     setSelectedPullRequest(pr);
     setSelectedRepository(pr.base.repo);
-    navigate(`/app/pr/${pr.base.repo.owner.login}/${pr.base.repo.name}/${pr.number}`);
+    
+    // Use full_name if available, otherwise extract from URL or use fallback
+    const repoName = pr.base?.repo?.name || 
+                     pr.base?.repo?.full_name?.split('/')[1] || 
+                     pr.repository?.name ||
+                     'unknown';
+    const ownerName = pr.base?.repo?.owner?.login || 
+                      pr.base?.repo?.full_name?.split('/')[0] ||
+                      pr.repository?.owner?.login ||
+                      'unknown';
+                      
+    console.log('🔗 Navigating to:', `/app/pr/${ownerName}/${repoName}/${pr.number}`);
+    navigate(`/app/pr/${ownerName}/${repoName}/${pr.number}`);
   };
 
   const handleAuthComplete = () => {
