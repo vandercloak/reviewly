@@ -6,19 +6,6 @@ Reviewly is a modern, AI-enhanced GitHub pull request review dashboard that tran
 
 <img width="923" height="676" alt="image" src="https://github.com/user-attachments/assets/0255eeb8-a24c-4fa3-8689-a94e0f18984b" />
 
-### A Dashboard to keep you focused
-
-<img width="1407" height="802" alt="image" src="https://github.com/user-attachments/assets/662d012b-639c-4899-8453-ffca3ebe9f76" />
-
-### Snooze PRs that can wait until tomorrow
-
-<img width="889" height="436" alt="image" src="https://github.com/user-attachments/assets/bbfb94f0-e44c-4983-ac3c-aa48fe3823ef" />
-
-
-### PR + Edit w/ AI and never lose site of the ball
-
-<img width="1414" height="786" alt="image" src="https://github.com/user-attachments/assets/115f3171-abe1-42d2-8f6a-47fb252cbe05" />
-
 
 ## 🚀 Features
 
